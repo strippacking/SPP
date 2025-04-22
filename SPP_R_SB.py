@@ -2,17 +2,51 @@ import math
 import signal
 import sys
 import os
-import multiprocessing
-import threading
+import json
+import subprocess
 import time
-
-from pysat.formula import CNF
-from pysat.solvers import Glucose4
-
 import fileinput
 import matplotlib.pyplot as plt
 import timeit
 import pandas as pd
+
+from pysat.formula import CNF
+from pysat.solvers import Glucose4
+
+# Global variables to track best solution found so far
+best_height = float('inf')
+best_positions = []
+best_rotations = []
+variables_length = 0
+clauses_length = 0
+upper_bound = 0  # Biến toàn cục để lưu trữ upper_bound
+
+# Signal handler for graceful interruption (e.g., by runlim)
+def handle_interrupt(signum, frame):
+    print(f"\nReceived interrupt signal {signum}. Saving current best solution.")
+    
+    # Lấy chiều cao tốt nhất (hoặc là giá trị tìm được, hoặc là upper_bound)
+    current_height = best_height if best_height != float('inf') else upper_bound
+    print(f"Best height found before interrupt: {current_height}")
+    
+    # Save result as JSON for the controller to pick up
+    result = {
+        'Instance': instances[instance_id],  # Thêm tên instance
+        'Variables': variables_length,
+        'Clauses': clauses_length,
+        'Runtime': timeit.default_timer() - start,
+        'Optimal_Height': current_height,
+        'Status': 'TIMEOUT'
+    }
+    
+    with open(f'results_{instance_id}.json', 'w') as f:
+        json.dump(result, f)
+    
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, handle_interrupt)  # Termination signal
+signal.signal(signal.SIGINT, handle_interrupt)   # Keyboard interrupt (Ctrl+C)
 
 # Create SPP folder if it doesn't exist
 if not os.path.exists('SPP_R_SB'):
@@ -82,52 +116,32 @@ def display_solution(strip, rectangles, pos_circuits, rotations, instance_name):
     ax.set_xlabel('Width')
     ax.set_ylabel('Height')
     ax.grid(True, linestyle='--', alpha=0.7)
-        # Save the plot to SPP folder
+    
+    # Save the plot to SPP folder
     plt.savefig(f'SPP_R_SB/{instance_name}.png')
     plt.close()
-
-def run_solver(cnf, variables, rectangles, width, height, result_queue):
-    try:
-        with Glucose4() as solver:
-            solver.append_formula(cnf)
-            if solver.solve():
-                pos = [[0 for _ in range(2)] for _ in range(len(rectangles))]
-                rotation = []
-                model = solver.get_model()
-                result = {}
-                for var in model:
-                    if var > 0:
-                        result[list(variables.keys())[list(variables.values()).index(var)]] = True
-                    else:
-                        result[list(variables.keys())[list(variables.values()).index(-var)]] = False
-
-                for i in range(len(rectangles)):
-                    rotation.append(result[f"r{i + 1}"])
-                    for e in range(width - 1):
-                        if result[f"px{i + 1},{e}"] == False and result[f"px{i + 1},{e + 1}"] == True:
-                            pos[i][0] = e + 1
-                        if e == 0 and result[f"px{i + 1},{e}"] == True:
-                            pos[i][0] = 0
-                    for f in range(height - 1):
-                        if result[f"py{i + 1},{f}"] == False and result[f"py{i + 1},{f + 1}"] == True:
-                            pos[i][1] = f + 1
-                        if f == 0 and result[f"py{i + 1},{f}"] == True:
-                            pos[i][1] = 0
-                result_queue.put(["sat", pos, rotation])
-            else:
-                print("UNSAT")
-                result_queue.put("unsat")
-    except Exception as e:
-        print(f"Solver error: {str(e)}")
-        result_queue.put("error")
 
 def positive_range(end):
     if end < 0:
         return []
     return range(end)
 
+# Thêm hàm save_checkpoint để lưu tiến trình giải
+def save_checkpoint(instance_id, variables, clauses, height, status="IN_PROGRESS"):
+    checkpoint = {
+        'Variables': variables,
+        'Clauses': clauses,
+        'Runtime': timeit.default_timer() - start,
+        'Optimal_Height': height if height != float('inf') else upper_bound,
+        'Status': status
+    }
+    
+    # Ghi ra file checkpoint
+    with open(f'checkpoint_{instance_id}.json', 'w') as f:
+        json.dump(checkpoint, f)
+
 def OPP(strip):
-    global variables_length, clauses_length
+    global variables_length, clauses_length, best_height, best_positions, best_rotations
     # Define the variables
     cnf = CNF()
     width = strip[0]
@@ -303,12 +317,26 @@ def OPP(strip):
                 
     variables_length = len(variables)
     clauses_length = len(cnf.clauses)
+    
+    # Lưu checkpoint hiện tại
+    save_checkpoint(instance_id, variables_length, clauses_length, 
+                    best_height if best_height != float('inf') else upper_bound)
+    
     with Glucose4() as solver:
             solver.append_formula(cnf)
             if solver.solve():
                 pos = [[0 for _ in range(2)] for _ in range(len(rectangles))]
                 rotation = []
                 model = solver.get_model()
+                print("SAT")
+                
+                # Cập nhật best_height nếu tìm được giải pháp
+                if height < best_height:
+                    best_height = height
+                    
+                    # Lưu checkpoint sau khi tìm được giải pháp
+                    save_checkpoint(instance_id, variables_length, clauses_length, best_height)
+                
                 result = {}
                 for var in model:
                     if var > 0:
@@ -328,105 +356,290 @@ def OPP(strip):
                             pos[i][1] = f + 1
                         if f == 0 and result[f"py{i + 1},{f}"] == True:
                             pos[i][1] = 0
+                
+                # Lưu best_positions và best_rotations
+                best_positions = pos
+                best_rotations = rotation
+                
                 return (["sat", pos, rotation])
             else:
                 print("UNSAT")
                 return ("unsat")
 
 def SPP(lower, upper):
-    global optimal_height, optimal_pos, optimal_rot
+    global optimal_height, optimal_pos, optimal_rot, best_height
     if lower <= upper:
         mid = (lower + upper) // 2
+        print(f"Trying height: {mid} (lower={lower}, upper={upper})")
         OPP_result = OPP((width, mid))
         if OPP_result == "unsat":
-            if lower + 1 == upper:
+            if lower == upper:
                 return -1
             else:
-                return SPP(mid, upper)
+                return SPP(mid + 1, upper)
         else:
             optimal_height = mid
+            best_height = mid  # Cập nhật biến global
             optimal_pos = OPP_result[1]
             optimal_rot = OPP_result[2]
-            if lower + 1 == upper:
+            if lower == upper:
                 return -1
             else:
-                return SPP(lower, mid)
+                return SPP(lower, mid - 1)
+    return optimal_height
+
+if __name__ == "__main__":
+    # Phần controller mode
+    if len(sys.argv) == 1:
+        # This is the controller mode - running without arguments
+        # Create SPP folder if it doesn't exist
+        if not os.path.exists('SPP_R_SB'):
+            os.makedirs('SPP_R_SB')
+        
+        # Đọc file Excel hiện có để kiểm tra instances đã hoàn thành
+        excel_file = 'SPP_R_SB.xlsx'
+        if os.path.exists(excel_file):
+            # Đọc file Excel hiện có nếu nó tồn tại
+            existing_df = pd.read_excel(excel_file)
+            # Lấy danh sách các instance đã hoàn thành
+            completed_instances = existing_df['Instance'].tolist() if 'Instance' in existing_df.columns else []
+        else:
+            # Tạo DataFrame trống nếu chưa có file
+            existing_df = pd.DataFrame()
+            completed_instances = []
+        
+        # Set timeout in seconds
+        TIMEOUT = 4  # 30 minutes timeout
+        
+        for instance_id in range(1, 5):
+            instance_name = instances[instance_id]
+            
+            # Kiểm tra xem instance này đã được chạy chưa
+            if instance_name in completed_instances:
+                print(f"\nSkipping instance {instance_id}: {instance_name} (already completed)")
+                continue
+                
+            print(f"\n{'=' * 50}")
+            print(f"Running instance {instance_id}: {instance_name}")
+            print(f"{'=' * 50}")
+            
+            # Clean up any previous result file
+            if os.path.exists(f'results_{instance_id}.json'):
+                os.remove(f'results_{instance_id}.json')
+            
+            # Run the instance with runlim, but use THIS script with the instance_id
+            command = f"./runlim --time-limit={TIMEOUT} python3 SPP_R_SB.py {instance_id}"
+            
+            try:
+                # Run the command and wait for it to complete
+                process = subprocess.Popen(command, shell=True)
+                process.wait()
+                
+                # Wait a moment to ensure file is written
+                time.sleep(1)
+                
+                # Kiểm tra kết quả
+                result = None
+                
+                # Thử đọc file results trước (kết quả hoàn chỉnh)
+                if os.path.exists(f'results_{instance_id}.json'):
+                    with open(f'results_{instance_id}.json', 'r') as f:
+                        result = json.load(f)
+                
+                # Nếu không tìm thấy file results, kiểm tra file checkpoint
+                elif os.path.exists(f'checkpoint_{instance_id}.json'):
+                    with open(f'checkpoint_{instance_id}.json', 'r') as f:
+                        result = json.load(f)
+                    # Đánh dấu đây là kết quả timeout
+                    result['Status'] = 'TIMEOUT'
+                    result['Instance'] = instance_name
+                    print(f"Instance {instance_name} timed out. Using checkpoint data.")
+                
+                # Xử lý kết quả (nếu có)
+                if result:
+                    print(f"Instance {instance_name} - Status: {result['Status']}")
+                    print(f"Optimal Height: {result['Optimal_Height']}, Runtime: {result['Runtime']}")
+                    
+                    # Nếu status là TIMEOUT, ghi vào Excel
+                    if result['Status'] == 'TIMEOUT':
+                        # Thêm tên instance vào kết quả nếu chưa có
+                        result['Runtime'] = "TIMEOUT"
+                        if 'Instance' not in result:
+                            result['Instance'] = instance_name
+                        
+                        # Xử lý Excel
+                        if os.path.exists(excel_file):
+                            try:
+                                existing_df = pd.read_excel(excel_file)
+                                instance_exists = instance_name in existing_df['Instance'].tolist() if 'Instance' in existing_df.columns else False
+                                
+                                if instance_exists:
+                                    # Cập nhật instance đã tồn tại
+                                    instance_idx = existing_df.index[existing_df['Instance'] == instance_name].tolist()[0]
+                                    for key, value in result.items():
+                                        existing_df.at[instance_idx, key] = value
+                                else:
+                                    # Thêm instance mới
+                                    result_df = pd.DataFrame([result])
+                                    existing_df = pd.concat([existing_df, result_df], ignore_index=True)
+                            except Exception as e:
+                                print(f"Lỗi khi đọc file Excel hiện có: {str(e)}")
+                                existing_df = pd.DataFrame([result])
+                        else:
+                            # Tạo DataFrame mới nếu chưa có file Excel
+                            existing_df = pd.DataFrame([result])
+                        # Lưu DataFrame vào Excel
+                        existing_df.to_excel(excel_file, index=False)
+                        print(f"Timeout results saved to {excel_file}")
+                        
+                else:
+                    print(f"No results or checkpoint found for instance {instance_name}")
+                    
+            except Exception as e:
+                print(f"Error running instance {instance_name}: {str(e)}")
+            
+            # Clean up the results file to avoid confusion
+            for file in [f'results_{instance_id}.json', f'checkpoint_{instance_id}.json']:
+                if os.path.exists(file):
+                    os.remove(file)
+        
+        print(f"\nAll instances completed. Results saved to {excel_file}")
+    
+    # Phần single instance mode
     else:
-        return -1
-
-# Main execution
-results_data = []
-
-try:
-    for instance in range(1, 39):
-        instance_name = instances[instance]
+        # Single instance mode
+        instance_id = int(sys.argv[1])
+        instance_name = instances[instance_id]
+        
+        start = timeit.default_timer()  # start clock
+        
         try:
             print(f"\nProcessing instance {instance_name}")
-            start = timeit.default_timer()
-
-            # read file input
-            input = read_file_instance(instance)
-            width = int(input[0])
-            n_rec = int(input[1])
-            rectangles = [[int(val) for val in i.split()] for i in input[-n_rec:]]
-
             
-            # Initialize variables for tracking
-            variables_length = 0
-            clauses_length = 0
+            # Reset global best solution for this instance
+            best_height = float('inf')
+            best_positions = []
+            best_rotations = []
             optimal_height = float('inf')
             optimal_pos = []
+            optimal_rot = []
 
+            # read file input
+            input = read_file_instance(instance_id)
+            width = int(input[0])
+            n_rec = int(input[1])
+            rectangles = []
+            for i in range(2, 2 + n_rec):
+                if i < len(input):
+                    rect = [int(val) for val in input[i].split()]
+                    rectangles.append(rect)
+                else:
+                    raise IndexError(f"Missing rectangle data at line {i}")
+            
             # Calculate initial bounds
             heights = [int(rectangle[1]) for rectangle in rectangles]
-            area = math.floor(sum([int(rectangle[0] * rectangle[1]) for rectangle in rectangles]) / width)
             upper_bound = min(sum(heights), calculate_first_fit_upper_bound(width, rectangles))
             lower_bound = max(math.ceil(sum([int(rectangle[0] * rectangle[1]) for rectangle in rectangles]) / width), max(heights))
 
-            # Run SPP
+            print(f"Solving 2D Strip Packing with rotation for instance {instance_name}")
+            print(f"Width: {width}")
+            print(f"Number of rectangles: {n_rec}")
+            print(f"Lower bound: {lower_bound}")
+            print(f"Upper bound: {upper_bound}")
+            
+            # Solve using binary search
             final_height = SPP(lower_bound, upper_bound)
-            print(optimal_pos)
             
             stop = timeit.default_timer()
             runtime = stop - start
 
             # Display and save the solution if we found one
             if optimal_height != float('inf'):
-                print(rectangles)
                 display_solution((width, optimal_height), rectangles, optimal_pos, optimal_rot, instance_name)
 
-            # Store results
-            instance_result = {
+            # Tạo result object
+            result = {
                 'Instance': instance_name,
                 'Variables': variables_length,
                 'Clauses': clauses_length,
                 'Runtime': runtime,
-                'Optimal_Height': optimal_height if optimal_height != float('inf') else 'TIMEOUT'
+                'Optimal_Height': optimal_height if optimal_height != float('inf') else upper_bound,
+                'Status': 'COMPLETE'
             }
-            results_data.append(instance_result)
+            
+            # Ghi kết quả vào Excel trực tiếp
+            excel_file = 'SPP_R_SB.xlsx'
+            if os.path.exists(excel_file):
+                try:
+                    existing_df = pd.read_excel(excel_file)
+                    instance_exists = instance_name in existing_df['Instance'].tolist() if 'Instance' in existing_df.columns else False
+                    
+                    if instance_exists:
+                        # Cập nhật instance đã tồn tại
+                        instance_idx = existing_df.index[existing_df['Instance'] == instance_name].tolist()[0]
+                        for key, value in result.items():
+                            existing_df.at[instance_idx, key] = value
+                    else:
+                        # Thêm instance mới
+                        result_df = pd.DataFrame([result])
+                        existing_df = pd.concat([existing_df, result_df], ignore_index=True)
+                except Exception as e:
+                    print(f"Lỗi khi đọc file Excel hiện có: {str(e)}")
+                    existing_df = pd.DataFrame([result])
+            else:
+                # Tạo DataFrame mới nếu chưa có file Excel
+                existing_df = pd.DataFrame([result])
+            
+            # Lưu DataFrame vào Excel
+            existing_df.to_excel(excel_file, index=False)
+            print(f"Results saved to {excel_file}")
+            
+            # Save result to a JSON file that the controller will read
+            with open(f'results_{instance_id}.json', 'w') as f:
+                json.dump(result, f)
             
             print(f"Instance {instance_name} completed - Runtime: {runtime:.2f}s, Height: {optimal_height}")
 
         except Exception as e:
             print(f"Error in instance {instance_name}: {str(e)}")
-            results_data.append({
+            # Save error result - sử dụng upper_bound nếu không có best_height
+            current_height = best_height if best_height != float('inf') else upper_bound
+            result = {
                 'Instance': instance_name,
-                'Variables': 'ERROR',
-                'Clauses': 'ERROR',
-                'Runtime': 'ERROR',
-                'Optimal_Height': 'ERROR'
-            })
-            continue
-
-    # Save results to Excel
-    df = pd.DataFrame(results_data)
-    df.to_excel('SPP_R_SB.xlsx', index=False)
-    print("\nResults saved to SPP_R_SB.xlsx")
-
-except KeyboardInterrupt:
-    print("\nKeyboard interrupt detected. Printing current results:")
-    for result in results_data:
-        print(result)
-    df = pd.DataFrame(results_data)
-    df.to_excel('SPP_R_SB.xlsx', index=False)
-    print("\nPartial results saved to SPP_R_SB.xlsx")
+                'Variables': variables_length,
+                'Clauses': clauses_length,
+                'Runtime': timeit.default_timer() - start,
+                'Optimal_Height': current_height,
+                'Status': 'ERROR'
+            }
+            
+            # Ghi kết quả lỗi vào Excel
+            excel_file = 'SPP_R_SB.xlsx'
+            if os.path.exists(excel_file):
+                try:
+                    existing_df = pd.read_excel(excel_file)
+                    instance_exists = instance_name in existing_df['Instance'].tolist() if 'Instance' in existing_df.columns else False
+                    
+                    if instance_exists:
+                        # Cập nhật instance đã tồn tại
+                        instance_idx = existing_df.index[existing_df['Instance'] == instance_name].tolist()[0]
+                        for key, value in result.items():
+                            existing_df.at[instance_idx, key] = value
+                    else:
+                        # Thêm instance mới
+                        result_df = pd.DataFrame([result])
+                        existing_df = pd.concat([existing_df, result_df], ignore_index=True)
+                except Exception as ex:
+                    print(f"Lỗi khi đọc file Excel hiện có: {str(ex)}")
+                    existing_df = pd.DataFrame([result])
+            else:
+                # Tạo DataFrame mới nếu chưa có file Excel
+                existing_df = pd.DataFrame([result])
+            
+            # Lưu DataFrame vào Excel
+            existing_df.to_excel(excel_file, index=False)
+            print(f"Error results saved to {excel_file}")
+            
+            # Save result to a JSON file that the controller will read
+            with open(f'results_{instance_id}.json', 'w') as f:
+                json.dump(result, f)

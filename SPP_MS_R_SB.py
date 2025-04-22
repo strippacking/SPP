@@ -8,11 +8,47 @@ import pandas as pd
 import os
 import tempfile
 import subprocess
+import traceback
+import json
+import time
 
 from pysat.formula import CNF
 from pysat.solvers import Glucose42
 
-start = timeit.default_timer() # start clock
+# Global variables to track best solution found so far
+best_height = float('inf')
+best_positions = []
+best_rotations = []
+variables_length = 0
+clauses_length = 0
+upper_bound = 0  # Biến toàn cục để lưu trữ upper_bound
+
+# Signal handler for graceful interruption (e.g., by runlim)
+def handle_interrupt(signum, frame):
+    print(f"\nReceived interrupt signal {signum}. Saving current best solution.")
+    
+    # Lấy chiều cao tốt nhất (hoặc là giá trị tìm được, hoặc là upper_bound)
+    current_height = best_height if best_height != float('inf') else upper_bound
+    print(f"Best height found before interrupt: {current_height}")
+    
+    # Save result as JSON for the controller to pick up
+    result = {
+        'Instance': instances[instance_id],  # Thêm tên instance
+        'Variables': variables_length,
+        'Clauses': clauses_length,
+        'Runtime': timeit.default_timer() - start,
+        'Optimal_Height': current_height,
+        'Status': 'TIMEOUT'
+    }
+    
+    with open(f'results_{instance_id}.json', 'w') as f:
+        json.dump(result, f)
+    
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, handle_interrupt)  # Termination signal
+signal.signal(signal.SIGINT, handle_interrupt)   # Keyboard interrupt (Ctrl+C)
 
 # Create SPP folder if it doesn't exist
 if not os.path.exists('SPP_MS_R_SB'):
@@ -82,7 +118,8 @@ def display_solution(strip, rectangles, pos_circuits, rotations, instance_name):
     ax.set_xlabel('Width')
     ax.set_ylabel('Height')
     ax.grid(True, linestyle='--', alpha=0.7)
-        # Save the plot to SPP folder
+    
+    # Save the plot to SPP folder
     plt.savefig(f'SPP_MS_R_SB/{instance_name}.png')
     plt.close()
 
@@ -91,14 +128,27 @@ def positive_range(end):
         return []
     return range(end)
 
+# Thêm hàm save_checkpoint để lưu tiến trình giải
+def save_checkpoint(instance_id, variables, clauses, height, status="IN_PROGRESS"):
+    checkpoint = {
+        'Variables': variables,
+        'Clauses': clauses,
+        'Runtime': timeit.default_timer() - start,
+        'Optimal_Height': height if height != float('inf') else upper_bound,
+        'Status': status
+    }
+    
+    # Ghi ra file checkpoint
+    with open(f'checkpoint_{instance_id}.json', 'w') as f:
+        json.dump(checkpoint, f)
+
 def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
     """Solve 2SPP using Max-SAT approach with tt-open-wbo-inc"""
+    global variables_length, clauses_length, best_height, best_positions, best_rotations
     n_rectangles = len(rectangles)
     variables = {}
     counter = 1
 
-    global variables_length, clauses_length
-    
     # Create a temporary file for the Max-SAT formula
     with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.wcnf') as file:
         wcnf_file = file.name
@@ -203,29 +253,30 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
                 for y_pos in positive_range(upper_bound - j_height):
                     hard_clauses.append([j_rotation, -variables[f"ud{j + 1},{i + 1}"],
                                 variables[f"py{j + 1},{y_pos}"], -variables[f"py{i + 1},{y_pos + j_height}"]])
-                
-    max_width = max([int(rectangle[0]) for rectangle in rectangles])
-    second_max_width = max([int(rectangle[0]) for rectangle in rectangles if int(rectangle[0]) != max_width])
 
-    #Symmetry Breaking
-    for i in range(len(rectangles)):
-        for j in range(i + 1, len(rectangles)):
-            #Fix the position of the largest rectangle and the second largest rectangle
-            if rectangles[i][0] == max_width and rectangles[j][0] == second_max_width:
-                add_non_overlapping(False, i, j, False, False, True, True)
-                add_non_overlapping(True, i, j, False, False, True, True)
-            # Large-rectangles horizontal
-            if min(rectangles[i][0], rectangles[i][1]) + min(rectangles[j][0], rectangles[j][1]) > width:
-                add_non_overlapping(False, i, j, False, False, True, True)
-                add_non_overlapping(True, i, j, False, False, True, True)
-            # Large rectangles vertical
-            elif min(rectangles[i][0], rectangles[i][1]) + min(rectangles[j][0], rectangles[j][1]) > upper_bound:
-                add_non_overlapping(False, i, j, True, True, False, False)
-                add_non_overlapping(True, i, j, True, True, False, False)
-            # Normal rectangles
-            else:
-                add_non_overlapping(False, i, j, True, True, True, True)
-                add_non_overlapping(True, i, j, True, True, True, True)
+        # Find max width for symmetry breaking
+        max_width = max([int(rectangle[0]) for rectangle in rectangles])
+        second_max_width = max([int(rectangle[0]) for rectangle in rectangles if int(rectangle[0]) != max_width])
+
+        # Symmetry Breaking
+        for i in range(len(rectangles)):
+            for j in range(i + 1, len(rectangles)):
+                # Fix the position of the largest rectangle and the second largest rectangle
+                if rectangles[i][0] == max_width and rectangles[j][0] == second_max_width:
+                    add_non_overlapping(False, i, j, False, False, True, True)
+                    add_non_overlapping(True, i, j, False, False, True, True)
+                # Large-rectangles horizontal
+                elif min(rectangles[i][0], rectangles[i][1]) + min(rectangles[j][0], rectangles[j][1]) > width:
+                    add_non_overlapping(False, i, j, False, False, True, True)
+                    add_non_overlapping(True, i, j, False, False, True, True)
+                # Large rectangles vertical
+                elif min(rectangles[i][0], rectangles[i][1]) + min(rectangles[j][0], rectangles[j][1]) > upper_bound:
+                    add_non_overlapping(False, i, j, True, True, False, False)
+                    add_non_overlapping(True, i, j, True, True, False, False)
+                # Normal rectangles
+                else:
+                    add_non_overlapping(False, i, j, True, True, True, True)
+                    add_non_overlapping(True, i, j, True, True, True, True)
                 
         # Domain encoding to ensure every rectangle stays inside strip's boundary
         for i in range(n_rectangles):
@@ -280,8 +331,6 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
         all_ph_vars = [variables[f"ph_{h}"] for h in range(lower_bound, upper_bound + 1)]
         hard_clauses.append(all_ph_vars)
         
-        # No p-line needed for tt-open-wbo-inc
-        
         # Write hard clauses with 'h' prefix
         for clause in hard_clauses:
             file.write(f"h {' '.join(map(str, clause))} 0\n")
@@ -296,11 +345,14 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
         print(f"Sample variables: ph_{lower_bound}={variables[f'ph_{lower_bound}']}, " +
               f"px{1},{0}={variables.get(f'px{1},{0}', 'N/A')}")
         
-        # On Windows, you might need to flush and close the file explicitly
         file.flush()
 
     variables_length = len(variables)
     clauses_length = len(hard_clauses) + len(soft_clauses)
+    
+    # Lưu checkpoint trước khi giải
+    save_checkpoint(instance_id, variables_length, clauses_length, 
+                   best_height if best_height != float('inf') else upper_bound)
     
     # Call tt-open-wbo-inc solver
     try:
@@ -376,6 +428,11 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
                     if ph_true_heights:
                         optimal_height = min(ph_true_heights)
                         print(f"Heights where ph_h is true: {sorted(ph_true_heights)}")
+                        
+                        # Update best height if better solution found
+                        if optimal_height < best_height:
+                            best_height = optimal_height
+                            save_checkpoint(instance_id, variables_length, clauses_length, best_height)
                     else:
                         print("WARNING: No ph_h variables are true! This may indicate a parsing issue.")
                         # Use lower bound as fallback
@@ -386,6 +443,7 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
                     if not true_vars:
                         print("WARNING: Solution parsing failed. Using lower bound height as fallback.")
                         optimal_height = lower_bound
+                        best_height = lower_bound
                         
                         # Set default positions - simple greedy left-bottom placement
                         x_pos = 0
@@ -462,6 +520,9 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
                     else:
                         print(f"Verification successful: All rectangles fit within optimal height {optimal_height}.")
                     
+                    # Save the results
+                    best_positions = positions
+                    best_rotations = rotations
                     break
         else:
             print("No optimal solution found.")
@@ -473,27 +534,139 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
     
     except Exception as e:
         print(f"Error running Max-SAT solver: {e}")
+        traceback.print_exc()  # Print traceback for more detailed error information
         if os.path.exists(wcnf_file):
             os.unlink(wcnf_file)
         return None, None, None
 
-def positive_range(end):
-    if end < 0:
-        return []
-    return range(end)
-
-# Main execution
-results_data = []
-
-try:
-    for instance in range(1, 39):
-        instance_name = instances[instance]
+if __name__ == "__main__":
+    # Phần controller mode
+    if len(sys.argv) == 1:
+        # This is the controller mode - running without arguments
+        # Create SPP folder if it doesn't exist
+        if not os.path.exists('SPP_MS_R_SB'):
+            os.makedirs('SPP_MS_R_SB')
+        
+        # Đọc file Excel hiện có để kiểm tra instances đã hoàn thành
+        excel_file = 'SPP_MS_R_SB.xlsx'
+        if os.path.exists(excel_file):
+            # Đọc file Excel hiện có nếu nó tồn tại
+            existing_df = pd.read_excel(excel_file)
+            # Lấy danh sách các instance đã hoàn thành
+            completed_instances = existing_df['Instance'].tolist() if 'Instance' in existing_df.columns else []
+        else:
+            # Tạo DataFrame trống nếu chưa có file
+            existing_df = pd.DataFrame()
+            completed_instances = []
+        
+        # Set timeout in seconds
+        TIMEOUT = 4  # 30 minutes timeout
+        
+        for instance_id in range(1, 5):
+            instance_name = instances[instance_id]
+            
+            # Kiểm tra xem instance này đã được chạy chưa
+            if instance_name in completed_instances:
+                print(f"\nSkipping instance {instance_id}: {instance_name} (already completed)")
+                continue
+                
+            print(f"\n{'=' * 50}")
+            print(f"Running instance {instance_id}: {instance_name}")
+            print(f"{'=' * 50}")
+            
+            # Clean up any previous result file
+            if os.path.exists(f'results_{instance_id}.json'):
+                os.remove(f'results_{instance_id}.json')
+            
+            # Run the instance with runlim, but use THIS script with the instance_id
+            command = f"./runlim --time-limit={TIMEOUT} python3 SPP_MS_R_SB.py {instance_id}"
+            
+            try:
+                # Run the command and wait for it to complete
+                process = subprocess.Popen(command, shell=True)
+                process.wait()
+                
+                # Wait a moment to ensure file is written
+                time.sleep(1)
+                
+                # Kiểm tra kết quả
+                result = None
+                
+                # Thử đọc file results trước (kết quả hoàn chỉnh)
+                if os.path.exists(f'results_{instance_id}.json'):
+                    with open(f'results_{instance_id}.json', 'r') as f:
+                        result = json.load(f)
+                
+                # Nếu không tìm thấy file results, kiểm tra file checkpoint
+                elif os.path.exists(f'checkpoint_{instance_id}.json'):
+                    with open(f'checkpoint_{instance_id}.json', 'r') as f:
+                        result = json.load(f)
+                    # Đánh dấu đây là kết quả timeout
+                    result['Status'] = 'TIMEOUT'
+                    result['Instance'] = instance_name
+                    print(f"Instance {instance_name} timed out. Using checkpoint data.")
+                
+                # Xử lý kết quả (nếu có)
+                if result:
+                    print(f"Instance {instance_name} - Status: {result['Status']}")
+                    print(f"Optimal Height: {result['Optimal_Height']}, Runtime: {result['Runtime']}")
+                    
+                    # Cập nhật Excel
+                    if os.path.exists(excel_file):
+                        try:
+                            existing_df = pd.read_excel(excel_file)
+                            instance_exists = instance_name in existing_df['Instance'].tolist() if 'Instance' in existing_df.columns else False
+                            
+                            if instance_exists:
+                                # Cập nhật instance đã tồn tại
+                                instance_idx = existing_df.index[existing_df['Instance'] == instance_name].tolist()[0]
+                                for key, value in result.items():
+                                    existing_df.at[instance_idx, key] = value
+                            else:
+                                # Thêm instance mới
+                                result_df = pd.DataFrame([result])
+                                existing_df = pd.concat([existing_df, result_df], ignore_index=True)
+                        except Exception as e:
+                            print(f"Lỗi khi đọc file Excel hiện có: {str(e)}")
+                            existing_df = pd.DataFrame([result])
+                    else:
+                        # Tạo DataFrame mới nếu chưa có file Excel
+                        existing_df = pd.DataFrame([result])
+                    # Lưu DataFrame vào Excel
+                    existing_df.to_excel(excel_file, index=False)
+                    print(f"Results saved to {excel_file}")
+                        
+                else:
+                    print(f"No results or checkpoint found for instance {instance_name}")
+                    
+            except Exception as e:
+                print(f"Error running instance {instance_name}: {str(e)}")
+            
+            # Clean up the results file to avoid confusion
+            for file in [f'results_{instance_id}.json', f'checkpoint_{instance_id}.json']:
+                if os.path.exists(file):
+                    os.remove(file)
+        
+        print(f"\nAll instances completed. Results saved to {excel_file}")
+    
+    # Phần single instance mode
+    else:
+        # Single instance mode
+        instance_id = int(sys.argv[1])
+        instance_name = instances[instance_id]
+        
+        start = timeit.default_timer()  # start clock
+        
         try:
             print(f"\nProcessing instance {instance_name}")
-            start = timeit.default_timer()
+            
+            # Reset global best solution for this instance
+            best_height = float('inf')
+            best_positions = []
+            best_rotations = []
 
             # read file input
-            input = read_file_instance(instance)
+            input = read_file_instance(instance_id)
             width = int(input[0])
             n_rec = int(input[1])
             rectangles = []
@@ -503,68 +676,118 @@ try:
                 w, h = map(int, input[i + 2].split())
                 rectangles.append((w, h))
             
-            # Initialize variables for tracking
-            variables_length = 0
-            clauses_length = 0
-            optimal_height = float('inf')
-            optimal_pos = []
-            optimal_rot = []
-
             # Calculate initial bounds
-            heights = [int(rectangle[1]) for rectangle in rectangles]
-            area = math.floor(sum([int(rectangle[0] * rectangle[1]) for rectangle in rectangles]) / width)
-            upper_bound = min(sum(heights), calculate_first_fit_upper_bound(width, rectangles))
-            lower_bound = max(math.ceil(sum([int(rectangle[0] * rectangle[1]) for rectangle in rectangles]) / width), max(heights))
+            # For rotation, we need to consider both orientations for height
+            heights = []
+            for rect in rectangles:
+                heights.append(rect[1])  # Normal orientation
+                heights.append(rect[0])  # Rotated orientation
+                
+            area = sum([int(rectangle[0] * rectangle[1]) for rectangle in rectangles])
+            upper_bound = min(max(heights) * n_rec, calculate_first_fit_upper_bound(width, rectangles))
+            lower_bound = max(math.ceil(area / width), max(heights))
 
-            print(f"Solving 2D Strip Packing with incremental SAT for instance {instance_name}")
+            print(f"Solving 2D Strip Packing with MaxSAT (with rotation) for instance {instance_name}")
             print(f"Width: {width}")
             print(f"Number of rectangles: {n_rec}")
             print(f"Lower bound: {lower_bound}")
             print(f"Upper bound: {upper_bound}")
             
-            # Solve with incremental SAT
+            # Solve with MaxSAT
             optimal_height, optimal_pos, optimal_rot = SPP_MaxSAT(width, rectangles, lower_bound, upper_bound)
             
             stop = timeit.default_timer()
             runtime = stop - start
 
             # Display and save the solution if we found one
-            #if optimal_height != float('inf'):
-                #display_solution((width, optimal_height), rectangles, optimal_pos, optimal_rot, instance_name)
+            if optimal_height is not None and optimal_pos is not None and optimal_rot is not None:
+                display_solution((width, optimal_height), rectangles, optimal_pos, optimal_rot, instance_name)
 
-            # Store results
-            instance_result = {
+            # Tạo result object
+            result = {
                 'Instance': instance_name,
                 'Variables': variables_length,
                 'Clauses': clauses_length,
                 'Runtime': runtime,
-                'Optimal_Height': optimal_height if optimal_height != float('inf') else 'TIMEOUT'
+                'Optimal_Height': optimal_height if optimal_height is not None else upper_bound,
+                'Status': 'COMPLETE' if optimal_height is not None else 'ERROR'
             }
-            results_data.append(instance_result)
+            
+            # Ghi kết quả vào Excel trực tiếp
+            excel_file = 'SPP_MS_R_SB.xlsx'
+            if os.path.exists(excel_file):
+                try:
+                    existing_df = pd.read_excel(excel_file)
+                    instance_exists = instance_name in existing_df['Instance'].tolist() if 'Instance' in existing_df.columns else False
+                    
+                    if instance_exists:
+                        # Cập nhật instance đã tồn tại
+                        instance_idx = existing_df.index[existing_df['Instance'] == instance_name].tolist()[0]
+                        for key, value in result.items():
+                            existing_df.at[instance_idx, key] = value
+                    else:
+                        # Thêm instance mới
+                        result_df = pd.DataFrame([result])
+                        existing_df = pd.concat([existing_df, result_df], ignore_index=True)
+                except Exception as e:
+                    print(f"Lỗi khi đọc file Excel hiện có: {str(e)}")
+                    existing_df = pd.DataFrame([result])
+            else:
+                # Tạo DataFrame mới nếu chưa có file Excel
+                existing_df = pd.DataFrame([result])
+            
+            # Lưu DataFrame vào Excel
+            existing_df.to_excel(excel_file, index=False)
+            print(f"Results saved to {excel_file}")
+            
+            # Save result to a JSON file that the controller will read
+            with open(f'results_{instance_id}.json', 'w') as f:
+                json.dump(result, f)
             
             print(f"Instance {instance_name} completed - Runtime: {runtime:.2f}s, Height: {optimal_height}")
 
         except Exception as e:
             print(f"Error in instance {instance_name}: {str(e)}")
-            results_data.append({
-                'Instance': instance_name,
-                'Variables': 'ERROR',
-                'Clauses': 'ERROR',
-                'Runtime': 'ERROR',
-                'Optimal_Height': 'ERROR'
-            })
-            continue
-
-    # Save results to Excel
-    df = pd.DataFrame(results_data)
-    df.to_excel('SPP_MS_R_SB.xlsx', index=False)
-    print("\nResults saved to SPP_MS_R_SB.xlsx")
-
-except KeyboardInterrupt:
-    print("\nKeyboard interrupt detected. Printing current results:")
-    for result in results_data:
-        print(result)
-    df = pd.DataFrame(results_data)
-    df.to_excel('SPP_MS_R_SB.xlsx', index=False)
-    print("\nPartial results saved to SPP_MS_R_SB.xlsx")
+            traceback.print_exc()  # Print the traceback for the error
             
+            # Save error result - use upper_bound if no best_height
+            current_height = best_height if best_height != float('inf') else upper_bound
+            result = {
+                'Instance': instance_name,
+                'Variables': variables_length,
+                'Clauses': clauses_length,
+                'Runtime': timeit.default_timer() - start,
+                'Optimal_Height': current_height,
+                'Status': 'ERROR'
+            }
+            
+            # Ghi kết quả lỗi vào Excel
+            excel_file = 'SPP_MS_R_SB.xlsx'
+            if os.path.exists(excel_file):
+                try:
+                    existing_df = pd.read_excel(excel_file)
+                    instance_exists = instance_name in existing_df['Instance'].tolist() if 'Instance' in existing_df.columns else False
+                    
+                    if instance_exists:
+                        # Cập nhật instance đã tồn tại
+                        instance_idx = existing_df.index[existing_df['Instance'] == instance_name].tolist()[0]
+                        for key, value in result.items():
+                            existing_df.at[instance_idx, key] = value
+                    else:
+                        # Thêm instance mới
+                        result_df = pd.DataFrame([result])
+                        existing_df = pd.concat([existing_df, result_df], ignore_index=True)
+                except Exception as ex:
+                    print(f"Lỗi khi đọc file Excel hiện có: {str(ex)}")
+                    existing_df = pd.DataFrame([result])
+            else:
+                # Tạo DataFrame mới nếu chưa có file Excel
+                existing_df = pd.DataFrame([result])
+            
+            # Lưu DataFrame vào Excel
+            existing_df.to_excel(excel_file, index=False)
+            print(f"Error results saved to {excel_file}")
+            
+            # Save result to a JSON file that the controller will read
+            with open(f'results_{instance_id}.json', 'w') as f:
+                json.dump(result, f)
