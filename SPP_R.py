@@ -66,7 +66,7 @@ instances= [ "",
   "GCUT01", "GCUT02", "GCUT03", "GCUT04", 
   "NGCUT01", "NGCUT02", "NGCUT03", "NGCUT04", "NGCUT05", "NGCUT06", "NGCUT07", 
   "NGCUT08", "NGCUT09", "NGCUT10", "NGCUT11", "NGCUT12", 
-  "BENG01", "BENG02", "BENG03", "BENG04", "BENG05", "BENG06", "BENG07", "BENG08", "BENG09", "BENG10"
+  "BENG01", "BENG02", "BENG03", "BENG04", "BENG05", "BENG06", "BENG07", "BENG08", "BENG09", "BENG10", "HT10(c4p1)", "HT11(c4p2)", "HT12(c4p3)"
 ]
 
 def calculate_first_fit_upper_bound(width, rectangles):
@@ -387,9 +387,9 @@ if __name__ == "__main__":
             completed_instances = []
         
         # Set timeout in seconds
-        TIMEOUT = 4  # 30 minutes timeout
+        TIMEOUT = 900  # 30 minutes timeout
         
-        for instance_id in range(1, 5):
+        for instance_id in range(39, 42):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa
