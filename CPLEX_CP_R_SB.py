@@ -114,7 +114,7 @@ def calculate_first_fit_upper_bound(width, rectangles, allow_rotation=True):
         
     return max(level[0] + sorted_rects[levels.index(level)][1] for level in levels)
 
-def solve_2OPP(strip_width, items, fixed_height, time_limit=60, allow_rotation=True):
+def solve_2OPP(strip_width, items, fixed_height, time_limit=1800, allow_rotation=True):
     """
     Solves the 2D Orthogonal Packing Problem with fixed height using CP.
     
@@ -280,14 +280,13 @@ def solve_2OPP(strip_width, items, fixed_height, time_limit=60, allow_rotation=T
     else:
         return None
 
-def solve_2SPP(strip_width, items, time_limit=120, allow_rotation=True):
+def solve_2SPP(strip_width, items, time_limit=1800, allow_rotation=True):
     """
     Solves the 2D Strip Packing Problem using bisection search.
     
     Args:
         strip_width: Width of the strip
         items: List of (width, height) tuples for each rectangle
-        time_limit: Total time limit in seconds
         allow_rotation: Allow 90-degree rotation of rectangles
         
     Returns:
@@ -326,22 +325,15 @@ def solve_2SPP(strip_width, items, time_limit=120, allow_rotation=True):
     iter_start_time = time.time()
     
     # Binary search for optimal height
-    while lb <= ub and time.time() - iter_start_time < time_limit:
+    while lb <= ub:
         mid = (lb + ub) // 2
         print(f"Trying height: {mid}")
-        
-        # Time limit for this iteration
-        remaining_time = time_limit - (time.time() - iter_start_time)
-        if remaining_time <= 0:
-            print("Time limit reached")
-            break
             
         # Lưu checkpoint trước khi giải
         save_checkpoint(instance_id, best_height)
             
         # Solve the 2OPP with fixed height = mid
-        result = solve_2OPP(strip_width, items, mid, 
-                          time_limit=min(60, remaining_time),
+        result = solve_2OPP(strip_width, items, mid, time_limit=time_limit,
                           allow_rotation=allow_rotation)
         
         if result:  # Feasible solution found
@@ -479,7 +471,7 @@ if __name__ == "__main__":
                 os.remove(f'results_{instance_id}.json')
             
             # Run the instance with runlim, but use THIS script with the instance_id
-            command = f"./runlim --time-limit={TIMEOUT} python3 CPLEX_CP_R_SB.py {instance_id}"
+            command = f"./runlim --real-time-limit={TIMEOUT} python3 CPLEX_CP_R_SB.py {instance_id}"
             
             try:
                 # Run the command and wait for it to complete
@@ -613,7 +605,7 @@ if __name__ == "__main__":
             print(f"Upper bound: {upper_bound}")
             
             # Solve with CP
-            result = solve_2SPP(strip_width, rectangles, time_limit=1740, allow_rotation=True) # Leave 60 seconds for other operations
+            result = solve_2SPP(strip_width, rectangles, time_limit=1800, allow_rotation=True) # Leave 60 seconds for other operations
             
             stop = timeit.default_timer()
             runtime = stop - start

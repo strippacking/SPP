@@ -358,7 +358,7 @@ if __name__ == "__main__":
                 os.remove(f'results_{instance_id}.json')
             
             # Run the instance with runlim, but use THIS script with the instance_id
-            command = f"./runlim --time-limit={TIMEOUT} python3 GUROBI_MIP_C2.py {instance_id}"
+            command = f"./runlim --real-time-limit={TIMEOUT} python3 GUROBI_MIP_C2.py {instance_id}"
             
             try:
                 # Run the command and wait for it to complete
@@ -495,7 +495,7 @@ if __name__ == "__main__":
             print(f"Upper bound: {upper_bound}")
             
             # Solve with Gurobi MIP
-            result = solve_strip_packing(widths, heights, strip_width, time_limit=1740, allow_rotation=True)  # 1740 seconds to leave 60s for other operations
+            result = solve_strip_packing(widths, heights, strip_width, time_limit=1800, allow_rotation=True)  # 1800 seconds to leave 60s for other operations
             
             stop = timeit.default_timer()
             runtime = stop - start

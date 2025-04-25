@@ -290,7 +290,7 @@ if __name__ == "__main__":
                 os.remove(f'results_{instance_id}.json')
             
             # Run the instance with runlim, but use THIS script with the instance_id
-            command = f"./runlim --time-limit={TIMEOUT} python3 CPLEX_MIP_C2.py {instance_id}"
+            command = f"./runlim --real-time-limit={TIMEOUT} python3 CPLEX_MIP_C2.py {instance_id}"
             
             try:
                 # Run the command and wait for it to complete
@@ -415,7 +415,7 @@ if __name__ == "__main__":
             save_checkpoint(instance_id, upper_bound)
             
             # Solve with MIP
-            result = solve_strip_packing(widths, heights, strip_width, time_limit=1740) # Leave 60 seconds for other operations
+            result = solve_strip_packing(widths, heights, strip_width, time_limit=1800) # Leave 60 seconds for other operations
             
             stop = timeit.default_timer()
             runtime = stop - start

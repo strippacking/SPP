@@ -116,7 +116,7 @@ def calculate_first_fit_upper_bound(width, rectangles, allow_rotation=True):
         
     return max(level[0] + sorted_rects[levels.index(level)][1] for level in levels)
 
-def solve_2OPP(strip_width, items, fixed_height, time_limit=60):
+def solve_2OPP(strip_width, items, fixed_height, time_limit=1800):
     """
     Solves the 2D Orthogonal Packing Problem with fixed height.
     
@@ -233,6 +233,7 @@ def solve_2OPP(strip_width, items, fixed_height, time_limit=60):
     # Solve with a time limit
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit  # Set time limit
+    # solver.parameters.num_search_workers = 1  # Giới hạn số worker threads để tránh CPU quá tải
     status = solver.Solve(model)
     
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
@@ -281,28 +282,17 @@ def solve_2SPP(strip_width, items, time_limit=1800):
     # Save checkpoint with initial upper bound
     save_checkpoint(instance_id, ub)
     
-    # Start time for time limit calculation
-    start_time = time.time()
-    remaining_time = time_limit
-    
     # Binary search for optimal height
-    while lb <= ub and remaining_time > 0:
+    while lb <= ub:
         mid = (lb + ub) // 2
-        print(f"Trying height: {mid} (LB={lb}, UB={ub}, Remaining time: {remaining_time:.1f}s)")
-        
-        # Time limit for this iteration (proportional to instance size)
-        iter_time_limit = min(remaining_time, 60)  # Max 60 seconds per height
-        
+        print(f"Trying height: {mid} (LB={lb}, UB={ub})")
+          
         # Save checkpoint before solving
         save_checkpoint(instance_id, best_height if best_height != float('inf') else upper_bound)
         
         # Solve the 2OPP with fixed height = mid
-        result = solve_2OPP(strip_width, items, mid, time_limit=iter_time_limit)
-        
-        # Update remaining time
-        elapsed = time.time() - start_time
-        remaining_time = time_limit - elapsed
-        
+        result = solve_2OPP(strip_width, items, mid, time_limit=time_limit)
+
         if result:  # Feasible solution found
             # Update best solution
             best_solution = result
@@ -321,11 +311,6 @@ def solve_2SPP(strip_width, items, time_limit=1800):
             # Increase lower bound
             lb = mid + 1
             print(f"  No solution. New LB={lb}")
-        
-        # Check if we're out of time
-        if remaining_time <= 0:
-            print("Time limit reached during binary search.")
-            break
     
     if best_solution:
         return {
@@ -427,7 +412,7 @@ if __name__ == "__main__":
                 os.remove(f'results_{instance_id}.json')
             
             # Run the instance with runlim, but use THIS script with the instance_id
-            command = f"./runlim --time-limit={TIMEOUT} python3 OR-TOOLS_CP_R_SB.py {instance_id}"
+            command = f"./runlim --real-time-limit={TIMEOUT} python3 OR-TOOLS_CP_R_SB.py {instance_id}"
             
             try:
                 # Run the command and wait for it to complete
@@ -548,7 +533,7 @@ if __name__ == "__main__":
             print(f"Upper bound: {upper_bound}")
             
             # Solve with CP
-            result = solve_2SPP(strip_width, items, time_limit=1740) # Leave 60 seconds for other operations
+            result = solve_2SPP(strip_width, items, time_limit=1800) # Leave 60 seconds for other operations
             
             stop = timeit.default_timer()
             runtime = stop - start

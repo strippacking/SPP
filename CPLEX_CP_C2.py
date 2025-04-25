@@ -83,7 +83,7 @@ def save_checkpoint(instance_id, height, status="IN_PROGRESS"):
     with open(f'checkpoint_{instance_id}.json', 'w') as f:
         json.dump(checkpoint, f)
 
-def solve_2OPP(strip_width, items, fixed_height, time_limit=60):
+def solve_2OPP(strip_width, items, fixed_height, time_limit=1800):
     """
     Solves the 2D Orthogonal Packing Problem with fixed height using CP.
     
@@ -169,14 +169,13 @@ def solve_2OPP(strip_width, items, fixed_height, time_limit=60):
     else:
         return None
 
-def solve_2SPP(strip_width, items, time_limit=120):
+def solve_2SPP(strip_width, items, time_limit=1800):
     """
     Solves the 2D Strip Packing Problem using bisection search.
     
     Args:
         strip_width: Width of the strip
         items: List of (width, height) tuples for each rectangle
-        time_limit: Total time limit in seconds
         
     Returns:
         dict with optimal height and positions
@@ -202,21 +201,15 @@ def solve_2SPP(strip_width, items, time_limit=120):
     iter_start_time = time.time()
     
     # Binary search for optimal height
-    while lb <= ub and time.time() - iter_start_time < time_limit:
+    while lb <= ub:
         mid = (lb + ub) // 2
         print(f"Trying height: {mid}")
         
-        # Time limit for this iteration
-        remaining_time = time_limit - (time.time() - iter_start_time)
-        if remaining_time <= 0:
-            print("Time limit reached")
-            break
-            
         # Lưu checkpoint trước khi giải
         save_checkpoint(instance_id, best_height)
             
         # Solve the 2OPP with fixed height = mid
-        result = solve_2OPP(strip_width, items, mid, time_limit=min(60, remaining_time))
+        result = solve_2OPP(strip_width, items, mid, time_limit=time_limit)
         
         if result:  # Feasible solution found
             # Update best solution
@@ -347,7 +340,7 @@ if __name__ == "__main__":
         # Set timeout in seconds
         TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(1, 42):
+        for instance_id in range(11, 42):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa
@@ -364,7 +357,7 @@ if __name__ == "__main__":
                 os.remove(f'results_{instance_id}.json')
             
             # Run the instance with runlim, but use THIS script with the instance_id
-            command = f"./runlim --time-limit={TIMEOUT} python3 CPLEX_CP_C2.py {instance_id}"
+            command = f"./runlim --real-time-limit={TIMEOUT} python3 CPLEX_CP_C2.py {instance_id}"
             
             try:
                 # Run the command and wait for it to complete
@@ -483,7 +476,7 @@ if __name__ == "__main__":
             print(f"Upper bound: {upper_bound}")
             
             # Solve with CP
-            result = solve_2SPP(strip_width, rectangles, time_limit=1740) # Leave 60 seconds for other operations
+            result = solve_2SPP(strip_width, rectangles, time_limit=1800) # Leave 60 seconds for other operations
             
             stop = timeit.default_timer()
             runtime = stop - start
