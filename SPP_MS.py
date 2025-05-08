@@ -50,8 +50,8 @@ signal.signal(signal.SIGTERM, handle_interrupt)  # Termination signal
 signal.signal(signal.SIGINT, handle_interrupt)   # Keyboard interrupt (Ctrl+C)
 
 # Create SPP folder if it doesn't exist
-if not os.path.exists('SPP_MS_SB_C2'):
-    os.makedirs('SPP_MS_SB_C2')
+if not os.path.exists('SPP_MS'):
+    os.makedirs('SPP_MS')
 
 def read_file_instance(n_instance):
     s = ''
@@ -114,7 +114,7 @@ def display_solution(strip, rectangles, pos_circuits, instance_name):
     ax.set_ylabel('height')
     
     # Save the plot to SPP folder
-    plt.savefig(f'SPP_MS_SB_C2/{instance_name}.png')
+    plt.savefig(f'SPP_MS/{instance_name}.png')
     plt.close()
 
 def positive_range(end):
@@ -258,27 +258,14 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
                                       -variables[f"py{i + 1},{y_pos + j_height}"]])
         
         # Find max height and width for symmetry breaking
-        max_height = max([int(rectangle[1]) for rectangle in rectangles])
-        max_width = max([int(rectangle[0]) for rectangle in rectangles])
-        second_max_width = max([int(rectangle[0]) for rectangle in rectangles if int(rectangle[0]) != max_width])
+        # max_height = max([int(rectangle[1]) for rectangle in rectangles])
+        # max_width = max([int(rectangle[0]) for rectangle in rectangles])
+        # second_max_width = max([int(rectangle[0]) for rectangle in rectangles if int(rectangle[0]) != max_width])
 
-        # Symmetry Breaking - Config 2
+        # No Symmetry Breaking
         for i in range(n_rectangles):
             for j in range(i + 1, n_rectangles):
-                #Fix the position of the largest rectangle and the second largest rectangle
-                if rectangles[i][0] == max_width and rectangles[j][0] == second_max_width:
-                    non_overlapping(i, j, True, False, True, False)
-                # Large-rectangles horizontal
-                elif rectangles[i][0] + rectangles[j][0] > width:
-                    non_overlapping(i, j, False, False, True, True)
-                # Large-rectangles vertical
-                elif rectangles[i][1] + rectangles[j][1] > upper_bound:
-                    non_overlapping(i, j, True, True, False, False)
-                # Same-sized rectangles
-                elif rectangles[i] == rectangles[j]:
-                    non_overlapping(i, j, True, False, True, True)
-                else:
-                    non_overlapping(i, j, True, True, True, True)
+                non_overlapping(i, j, True, True, True, True)
         
         # Domain encoding to ensure rectangles are placed within strip boundaries
         for i in range(n_rectangles):
@@ -470,11 +457,11 @@ if __name__ == "__main__":
     if len(sys.argv) == 1:
         # This is the controller mode - running without arguments
         # Create SPP folder if it doesn't exist
-        if not os.path.exists('SPP_MS_SB_C2'):
-            os.makedirs('SPP_MS_SB_C2')
+        if not os.path.exists('SPP_MS'):
+            os.makedirs('SPP_MS')
         
         # Đọc file Excel hiện có để kiểm tra instances đã hoàn thành
-        excel_file = 'SPP_MS_SB_C2.xlsx'
+        excel_file = 'SPP_MS.xlsx'
         if os.path.exists(excel_file):
             # Đọc file Excel hiện có nếu nó tồn tại
             existing_df = pd.read_excel(excel_file)
@@ -488,7 +475,7 @@ if __name__ == "__main__":
         # Set timeout in seconds
         TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(10, 39):
+        for instance_id in range(1, 42):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa
@@ -505,7 +492,7 @@ if __name__ == "__main__":
                 os.remove(f'results_{instance_id}.json')
             
             # Run the instance with runlim, but use THIS script with the instance_id
-            command = f"./runlim --time-limit={TIMEOUT} python3 SPP_MS_SB_C2.py {instance_id}"
+            command = f"./runlim --time-limit={TIMEOUT} python3 SPP_MS.py {instance_id}"
             
             try:
                 # Run the command and wait for it to complete
@@ -634,7 +621,7 @@ if __name__ == "__main__":
             }
             
             # Ghi kết quả vào Excel trực tiếp
-            excel_file = 'SPP_MS_SB_C2.xlsx'
+            excel_file = 'SPP_MS.xlsx'
             if os.path.exists(excel_file):
                 try:
                     existing_df = pd.read_excel(excel_file)
@@ -682,7 +669,7 @@ if __name__ == "__main__":
             }
             
             # Ghi kết quả lỗi vào Excel
-            excel_file = 'SPP_MS_SB_C2.xlsx'
+            excel_file = 'SPP_MS.xlsx'
             if os.path.exists(excel_file):
                 try:
                     existing_df = pd.read_excel(excel_file)

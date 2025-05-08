@@ -387,9 +387,9 @@ if __name__ == "__main__":
             completed_instances = []
         
         # Set timeout in seconds
-        TIMEOUT = 900  # 30 minutes timeout
+        TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(39, 42):
+        for instance_id in range(10, 39):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa

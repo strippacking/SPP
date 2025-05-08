@@ -342,8 +342,8 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
         # For debugging, print details about the WCNF file
         print(f"Created WCNF file with {len(hard_clauses)} hard clauses and {len(soft_clauses)} soft clauses")
         print(f"Variable count: {counter-1}")
-        print(f"Sample variables: ph_{lower_bound}={variables[f'ph_{lower_bound}']}, " +
-              f"px{1},{0}={variables.get(f'px{1},{0}', 'N/A')}")
+        # print(f"Sample variables: ph_{lower_bound}={variables[f'ph_{lower_bound}']}, " +
+            #   f"px{1},{0}={variables.get(f'px{1},{0}', 'N/A')}")
         
         file.flush()
 
@@ -422,8 +422,8 @@ def SPP_MaxSAT(width, rectangles, lower_bound, upper_bound):
                         if var_key in variables and variables[var_key] in true_vars:
                             ph_true_heights.append(h)
                     
-                    print(f"Height variables in model: {[(h, variables[f'ph_{h}']) for h in range(lower_bound, lower_bound+5)]}")
-                    print(f"Sample true variables: {sorted(list(true_vars)[:20])}")
+                    # print(f"Height variables in model: {[(h, variables[f'ph_{h}']) for h in range(lower_bound, lower_bound+5)]}")
+                    # print(f"Sample true variables: {sorted(list(true_vars)[:20])}")
                     
                     if ph_true_heights:
                         optimal_height = min(ph_true_heights)
@@ -560,9 +560,9 @@ if __name__ == "__main__":
             completed_instances = []
         
         # Set timeout in seconds
-        TIMEOUT = 900  # 30 minutes timeout
+        TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(39, 42):
+        for instance_id in range(10, 39):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa

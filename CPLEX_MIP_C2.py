@@ -132,7 +132,7 @@ def solve_strip_packing(widths, heights, strip_width, time_limit=1800):
     ba = mdl.binary_var_matrix(range(n), range(n), name="ba")
     
     # Big M constant
-    M = strip_width + max(heights)
+    M = 2 * (strip_width + max(heights))
     
     # Domain constraints
     for i in range(n):
@@ -273,7 +273,7 @@ if __name__ == "__main__":
         # Set timeout in seconds
         TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(1, 42):
+        for instance_id in range(10, 39):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa
