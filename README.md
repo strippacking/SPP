@@ -14,9 +14,10 @@ The NP-hard Two-Dimensional Strip Packing Problem (2SPP) demands efficient exact
 ## Repository Structure
 
 ```
-StripPacking-1/
+SPP/
 ├── README.md                    # This file
 ├── ws-apjor.tex                # Paper source (LaTeX)
+├── SPP_Result.xlsx             # Complete experimental results summary
 ├── runlim                      # Time limit utility
 ├── run.sh                      # Batch execution script
 ├── tt-open-wbo-inc-Glucose4_1_static  # MaxSAT solver binary
@@ -127,7 +128,11 @@ The repository includes known optimal heights for both:
 
 These optimal values serve as targets for solution quality evaluation and are primarily sourced from:
 - Kenmochi et al. (2009)
-- Arahori et al. (2012)  
+- Arahori et al. (2012)
+- Wei & Liu (2011)
+- Alvarez-Valdés et al. (2009)
+
+**Note:** Detailed comparison of achieved vs. optimal heights for all configurations is available in `SPP_Result.xlsx`.  
 - Wei & Liu (2011)
 - Alvarez-Valdés et al. (2009)
 
@@ -198,9 +203,31 @@ python3 SPP_SB_C2.py    # Runs all 41 instances sequentially
 ### Results
 
 Results are automatically saved to:
-- **Excel files**: `[ConfigName].xlsx` with performance metrics
-- **Visualizations**: PNG files in respective result folders
-- **JSON checkpoints**: For timeout recovery
+- **Excel files**: `[ConfigName].xlsx` with performance metrics for each configuration
+- **Visualizations**: PNG files in respective result folders showing optimal packings
+- **JSON checkpoints**: For timeout recovery and intermediate results
+- **Complete Summary**: `SPP_Result.xlsx` - Comprehensive results across all methods
+
+### SPP_Result.xlsx - Complete Experimental Results
+
+The `SPP_Result.xlsx` file contains a comprehensive summary of all experimental results from our paper. This Excel file includes:
+
+**Content Overview:**
+- **Performance comparison** across all 22 solver configurations tested
+- **Runtime analysis** for each of the 41 benchmark instances
+- **Success rates** (number of instances solved optimally within time limit)
+- **Optimal heights** achieved by each method for both rotational and non-rotational variants
+- **Statistical analysis** and comparative metrics between SAT/MaxSAT and CP/MIP approaches
+
+**Key Worksheets:**
+- **Summary Sheet**: Overall performance ranking and success rates
+- **Runtime Comparison**: Detailed execution times for all configurations
+- **Height Analysis**: Optimal solutions found vs. known optimal values
+- **Method Comparison**: Direct comparison between SAT, MaxSAT, CP, and MIP approaches
+- **Instance Analysis**: Per-instance breakdown showing which methods succeeded/failed
+
+**Usage:**
+This file serves as the primary reference for reproducing the results presented in our paper and provides researchers with detailed performance data for comparative studies.
 
 ## Experimental Results Summary
 
