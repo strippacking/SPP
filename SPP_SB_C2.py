@@ -298,23 +298,20 @@ def OPP(strip):
 
 def SPP(lower, upper):
     global optimal_height, optimal_pos, best_height
-    if lower <= upper:
+    
+    while lower <= upper:
         mid = (lower + upper) // 2
         print(f"Trying height: {mid} (lower={lower}, upper={upper})")
         OPP_result = OPP((width, mid))
+        
         if OPP_result == "unsat" or OPP_result == "timeout":
-            if lower == upper:
-                return -1
-            else:
-                return SPP(mid + 1, upper)
+            lower = mid + 1  # Tăng lower nếu không thỏa
         else:
             optimal_height = mid
-            best_height = mid  # Cập nhật biến global
+            best_height = mid
             optimal_pos = OPP_result[1]
-            if lower == upper:
-                return -1
-            else:
-                return SPP(lower, mid - 1)
+            upper = mid - 1  # Giảm upper để tìm giá trị tốt hơn
+    
     return optimal_height
 
 if __name__ == "__main__":
@@ -340,7 +337,7 @@ if __name__ == "__main__":
         # Set timeout in seconds
         TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(10, 39):
+        for instance_id in range(1, 42):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa

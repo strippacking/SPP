@@ -132,7 +132,7 @@ def solve_strip_packing(widths, heights, strip_width, time_limit=1800):
     ba = mdl.binary_var_matrix(range(n), range(n), name="ba")
     
     # Big M constant
-    M = 2 * (strip_width + max(heights))
+    M = (strip_width + max(heights))
     
     # Domain constraints
     for i in range(n):
@@ -174,7 +174,12 @@ def solve_strip_packing(widths, heights, strip_width, time_limit=1800):
     mdl.set_time_limit(time_limit)
     
     # Solve
-    solution = mdl.solve(log_output=True)
+    try:
+        solution = mdl.solve(log_output=True)
+    except Exception as e:
+        print(f"CPLEX error: {str(e)}")
+        # Có thể thêm xử lý cụ thể tùy theo loại lỗi
+        return None
     
     if solution:
         current_height = solution[H]
@@ -273,7 +278,7 @@ if __name__ == "__main__":
         # Set timeout in seconds
         TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(10, 39):
+        for instance_id in range(1, 42):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa
@@ -341,7 +346,7 @@ if __name__ == "__main__":
                             print(f"Lỗi khi đọc file Excel hiện có: {str(e)}")
                             existing_df = pd.DataFrame([result])
                     else:
-                        # Tạo DataFrame mới nếu chưa có file Excel
+                        # Tạo DataFrame trống nếu chưa có file
                         existing_df = pd.DataFrame([result])
                     # Lưu DataFrame vào Excel
                     existing_df.to_excel(excel_file, index=False)

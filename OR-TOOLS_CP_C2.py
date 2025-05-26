@@ -165,7 +165,7 @@ def solve_2OPP(strip_width, items, fixed_height, time_limit=1800):
     # Solve with a time limit
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit
-    # solver.parameters.num_search_workers = 1  # Thêm dòng này để giới hạn số luồng
+    solver.parameters.num_search_workers = 1 
     status = solver.Solve(model)
     
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
@@ -315,7 +315,7 @@ if __name__ == "__main__":
         # Set timeout in seconds
         TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(39, 42):
+        for instance_id in range(1, 42):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa

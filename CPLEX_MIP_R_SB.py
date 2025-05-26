@@ -406,7 +406,7 @@ if __name__ == "__main__":
             completed_instances = []
         
         # Set timeout in seconds
-        TIMEOUT = 1800  # 30 minutes timeout
+        TIMEOUT = 1200  # 30 minutes timeout
         
         for instance_id in range(1, 42):
             instance_name = instances[instance_id]

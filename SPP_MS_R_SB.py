@@ -562,7 +562,7 @@ if __name__ == "__main__":
         # Set timeout in seconds
         TIMEOUT = 1800  # 30 minutes timeout
         
-        for instance_id in range(10, 39):
+        for instance_id in range(1, 42):
             instance_name = instances[instance_id]
             
             # Kiểm tra xem instance này đã được chạy chưa
@@ -678,14 +678,9 @@ if __name__ == "__main__":
             
             # Calculate initial bounds
             # For rotation, we need to consider both orientations for height
-            heights = []
-            for rect in rectangles:
-                heights.append(rect[1])  # Normal orientation
-                heights.append(rect[0])  # Rotated orientation
-                
-            area = sum([int(rectangle[0] * rectangle[1]) for rectangle in rectangles])
-            upper_bound = min(max(heights) * n_rec, calculate_first_fit_upper_bound(width, rectangles))
-            lower_bound = max(math.ceil(area / width), max(heights))
+            heights = [int(rectangle[1]) for rectangle in rectangles]
+            upper_bound = min(sum(heights), calculate_first_fit_upper_bound(width, rectangles))
+            lower_bound = max(math.ceil(sum([int(rectangle[0] * rectangle[1]) for rectangle in rectangles]) / width), max(heights))
 
             print(f"Solving 2D Strip Packing with MaxSAT (with rotation) for instance {instance_name}")
             print(f"Width: {width}")

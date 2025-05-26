@@ -17,7 +17,6 @@ import traceback
 # Global variables to track best solution found so far
 best_height = float('inf')
 best_positions = []
-best_rotations = []
 solve_time = 0
 upper_bound = 0
 
@@ -84,13 +83,8 @@ def save_checkpoint(instance_id, height, status="IN_PROGRESS"):
     with open(f'checkpoint_{instance_id}.json', 'w') as f:
         json.dump(checkpoint, f)
 
-def calculate_first_fit_upper_bound(width, rectangles, allow_rotation=True):
-    # Sort rectangles by height (non-increasing)
-    if allow_rotation:
-        # Consider both orientations and choose the one with smaller height
-        sorted_rects = sorted([(min(w, h), max(w, h)) for w, h in rectangles], key=lambda r: -r[1])
-    else:
-        sorted_rects = sorted(rectangles, key=lambda r: -r[1])
+def calculate_first_fit_upper_bound(width, rectangles):
+    sorted_rects = sorted(rectangles, key=lambda r: -r[1])
     
     levels = []  # (y-position, remaining_width)
     
@@ -114,12 +108,12 @@ def calculate_first_fit_upper_bound(width, rectangles, allow_rotation=True):
         
     return max(level[0] + sorted_rects[levels.index(level)][1] for level in levels)
 
-def solve_strip_packing(widths, heights, strip_width, time_limit=1800, allow_rotation=True):
+def solve_strip_packing(widths, heights, strip_width, time_limit=1800):
     """
-    Solve the Strip Packing Problem using Gurobi MIP with time limit and rotation option.
+    Solve the Strip Packing Problem using Gurobi MIP with time limit option.
     Returns the optimal height and positions of rectangles.
     """
-    global best_height, best_positions, best_rotations
+    global best_height, best_positions
     
     # Create model
     mdl = Model("StripPacking")
@@ -134,26 +128,11 @@ def solve_strip_packing(widths, heights, strip_width, time_limit=1800, allow_rot
     y = mdl.addVars(n, lb=0, vtype=GRB.CONTINUOUS, name="y")  # y-coordinates
     H = mdl.addVar(vtype=GRB.CONTINUOUS, name="H")  # Strip height to minimize
     
-    # Rotation variables (optional)
-    if allow_rotation:
-        rotate = mdl.addVars(n, vtype=GRB.BINARY, name="rotate")  # 1 if rotated, 0 if not
-    else:
-        rotate = {i: 0 for i in range(n)}  # Fixed orientation
-    
-    # Effective width and height based on rotation
     w_eff = {}
     h_eff = {}
     for i in range(n):
-        if allow_rotation:
-            w_i = mdl.addVar(vtype=GRB.CONTINUOUS, name=f"w_{i}")
-            h_i = mdl.addVar(vtype=GRB.CONTINUOUS, name=f"h_{i}")
-            mdl.addConstr(w_i == rotate[i] * heights[i] + (1 - rotate[i]) * widths[i])
-            mdl.addConstr(h_i == rotate[i] * widths[i] + (1 - rotate[i]) * heights[i])
-            w_eff[i] = w_i
-            h_eff[i] = h_i
-        else:
-            w_eff[i] = widths[i]
-            h_eff[i] = heights[i]
+        w_eff[i] = widths[i]
+        h_eff[i] = heights[i]
     
     # Non-overlapping variables
     lr = mdl.addVars([(i,j) for i in range(n) for j in range(i+1, n)], 
@@ -192,20 +171,9 @@ def solve_strip_packing(widths, heights, strip_width, time_limit=1800, allow_rot
     # 1. Large rectangles constraint
     for i in range(n):
         for j in range(i+1, n):
-            if allow_rotation:
-                # With rotation: check minimum possible width of each rectangle
-                min_width_i = min(widths[i], heights[i])
-                min_width_j = min(widths[j], heights[j])
-                
-                # If rectangles can't fit side by side even with rotation
-                if min_width_i + min_width_j > strip_width:
-                    # Force vertical stacking only
-                    mdl.addConstr(lr[i,j] + rl[i,j] == 0, f"large_rect_h_{i}_{j}")
-            else:
-                # Without rotation: check actual widths
-                if widths[i] + widths[j] > strip_width:
-                    # Force vertical stacking only
-                    mdl.addConstr(lr[i,j] + rl[i,j] == 0, f"large_rect_h_{i}_{j}")
+            if widths[i] + widths[j] > strip_width:
+                # Force vertical stacking only
+                mdl.addConstr(lr[i,j] + rl[i,j] == 0, f"large_rect_h_{i}_{j}")
     
     # 2. One pair of rectangles constraint
     if n >= 2:
@@ -231,16 +199,10 @@ def solve_strip_packing(widths, heights, strip_width, time_limit=1800, allow_rot
             current_height = H.X
             positions = [(x[i].X, y[i].X) for i in range(n)]
             
-            if allow_rotation:
-                rotations = [rotate[i].X for i in range(n)]
-            else:
-                rotations = [0] * n
-            
             # Update global best solution
             if current_height < best_height:
                 best_height = current_height
                 best_positions = positions
-                best_rotations = rotations
                 
                 # Save checkpoint after finding better solution
                 save_checkpoint(instance_id, best_height)
@@ -248,7 +210,6 @@ def solve_strip_packing(widths, heights, strip_width, time_limit=1800, allow_rot
             return {
                 'height': current_height,
                 'positions': positions,
-                'rotations': rotations,
                 'objective_value': mdl.objVal,
                 'status': 'Optimal' if mdl.status == GRB.OPTIMAL else 'Time Limit',
                 'solve_time': mdl.Runtime
@@ -257,8 +218,8 @@ def solve_strip_packing(widths, heights, strip_width, time_limit=1800, allow_rot
         print(f"No feasible solution found. Status: {mdl.status}")
         return None
 
-def display_solution(strip, rectangles, pos_circuits, rotations, instance_name):
-    """Visualize the packing solution with improved styling and rotation"""
+def display_solution(strip, rectangles, pos_circuits, instance_name):
+    """Visualize the packing solution with improved styling"""
     fig, ax = plt.subplots(figsize=(10, 8))
     plt.title(f"Strip Packing Solution for {instance_name} (Width: {strip[0]}, Height: {strip[1]:.2f})")
 
@@ -267,10 +228,7 @@ def display_solution(strip, rectangles, pos_circuits, rotations, instance_name):
         colors = cm.viridis(np.linspace(0, 1, len(rectangles)))
         
         for i in range(len(rectangles)):
-            # Apply rotation if needed
             w, h = rectangles[i]
-            if rotations[i] >= 0.5:
-                w, h = h, w
             
             # Create rectangle with nice coloring
             rect = plt.Rectangle(pos_circuits[i], w, h, 
@@ -285,11 +243,6 @@ def display_solution(strip, rectangles, pos_circuits, rotations, instance_name):
             rgb = mcolors.to_rgb(colors[i])
             brightness = 0.299*rgb[0] + 0.587*rgb[1] + 0.114*rgb[2]
             text_color = 'white' if brightness < 0.6 else 'black'
-            
-            # Add rotation info
-            rot_info = 'R' if rotations[i] >= 0.5 else 'NR'
-            ax.annotate(f"{i}\n{rot_info}", (cx, cy), color=text_color, 
-                        ha='center', va='center', fontsize=10, fontweight='bold')
 
     # Use tight layout to maximize figure space
     ax.set_xlim(0, strip[0])
@@ -442,7 +395,6 @@ if __name__ == "__main__":
             # Reset global best solution for this instance
             best_height = float('inf')
             best_positions = []
-            best_rotations = []
 
             # read file input
             input_data = read_file_instance(instance_id)
@@ -467,26 +419,14 @@ if __name__ == "__main__":
             
             # Calculate initial bounds
             total_area = sum(w * h for w, h in rectangles)
-            allow_rotation = True  # Enable rotation for this solver
+
+            max_height = max(h for _, h in rectangles)
+            area_lb = math.ceil(total_area / strip_width)
+            lower_bound = max(max_height, area_lb)
             
-            if allow_rotation:
-                # With rotation: lower bound uses max of minimum dimensions
-                max_dimension = max(min(w, h) for w, h in rectangles)
-                area_lb = math.ceil(total_area / strip_width)
-                lower_bound = max(max_dimension, area_lb)
-                
-                # Upper bound: either sum of all heights or first-fit
-                upper_bound = min(sum(max(w, h) for w, h in rectangles), 
-                                calculate_first_fit_upper_bound(strip_width, rectangles, allow_rotation))
-            else:
-                # Without rotation: standard bounds
-                max_height = max(h for _, h in rectangles)
-                area_lb = math.ceil(total_area / strip_width)
-                lower_bound = max(max_height, area_lb)
-                
-                # Upper bound: either sum of all heights or first-fit
-                upper_bound = min(sum(heights), 
-                                calculate_first_fit_upper_bound(strip_width, rectangles, allow_rotation))
+            # Upper bound: either sum of all heights or first-fit
+            upper_bound = min(sum(heights), 
+                            calculate_first_fit_upper_bound(strip_width, rectangles))
 
             print(f"Solving 2D Strip Packing with Gurobi MIP for instance {instance_name}")
             print(f"Width: {strip_width}")
@@ -495,7 +435,7 @@ if __name__ == "__main__":
             print(f"Upper bound: {upper_bound}")
             
             # Solve with Gurobi MIP
-            result = solve_strip_packing(widths, heights, strip_width, time_limit=1800, allow_rotation=True)  # 1800 seconds to leave 60s for other operations
+            result = solve_strip_packing(widths, heights, strip_width, time_limit=1800)  # 1800 seconds to leave 60s for other operations
             
             stop = timeit.default_timer()
             runtime = stop - start
@@ -504,21 +444,20 @@ if __name__ == "__main__":
             if result:
                 optimal_height = result['height']
                 display_solution((strip_width, optimal_height), rectangles, 
-                               result['positions'], result['rotations'], instance_name)
+                               result['positions'], instance_name)
             else:
                 optimal_height = best_height if best_height != float('inf') else upper_bound
                 print(f"No solution found, using best height: {optimal_height}")
-                if best_positions and best_rotations:
+                if best_positions:
                     display_solution((strip_width, optimal_height), rectangles, 
-                                   best_positions, best_rotations, instance_name)
+                                   best_positions, instance_name)
 
             # Tạo result object
             result_data = {
                 'Instance': instance_name,
                 'Runtime': runtime,
                 'Optimal_Height': optimal_height,
-                'Status': 'COMPLETE' if result else 'ERROR',
-                'Allow_Rotation': 'Yes'
+                'Status': 'COMPLETE' if result else 'ERROR'
             }
             
             # Ghi kết quả vào Excel trực tiếp
@@ -564,8 +503,7 @@ if __name__ == "__main__":
                 'Instance': instance_name,
                 'Runtime': timeit.default_timer() - start,
                 'Optimal_Height': current_height,
-                'Status': 'ERROR',
-                'Allow_Rotation': 'Yes'
+                'Status': 'ERROR'
             }
             
             # Ghi kết quả lỗi vào Excel
